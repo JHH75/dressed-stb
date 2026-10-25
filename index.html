@@ -210,6 +210,8 @@ const addDays = (d,n)=>{ const x=new Date(d+"T12:00:00"); x.setDate(x.getDate()+
 const fmt = d => d ? new Date(d+"T12:00:00").toLocaleDateString("en-ZA",{day:"numeric",month:"short"}) : "";
 const fmtL = d => d ? new Date(d+"T12:00:00").toLocaleDateString("en-ZA",{weekday:"short",day:"numeric",month:"long"}) : "";
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const LOCS=[["flat","In the flat"],["home","At home"],["wash","Being washed"],["alter","Being altered"],["minerva","At Minerva"]];
+const locLabel = k => (LOCS.find(l=>l[0]===(k||"flat"))||LOCS[0])[1];
 const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 /* ---------- backend ---------- */
@@ -323,8 +325,11 @@ function renderDresses(){
   document.getElementById("dress-body").innerHTML = ds.length ? ds.map(({d,st})=>{
     const cur = S.bookings.find(b=>b.dressId===d.id && active(b) && (bState(b)==="out"||bState(b)==="late"));
     const next = S.bookings.filter(b=>b.dressId===d.id && bState(b)==="booked").sort((a,b)=>a.pickup.localeCompare(b.pickup))[0];
-    const sub = cur ? "with "+cur.client+" · back "+fmt(cur.return) : next ? "next "+fmt(next.pickup)+" · "+next.client : "in the flat";
-    return '<button class="row" onclick="openDress(\''+d.id+'\')"><span class="swatch" style="background:'+esc(d.colour||"var(--line)")+'"></span><div class="main"><div class="t">'+esc(d.name)+'</div><div class="s">'+esc(sub)+'</div></div><div class="r"><span class="chip '+st+'">'+({late:"overdue",out:"out",booked:"booked",in:"in"}[st])+'</span><div class="s">'+R(d.price)+'</div></div></button>';
+    const loc = d.location||"flat";
+    const away = st==="in" && loc!=="flat";
+    const sub = cur ? "with "+cur.client+" · back "+fmt(cur.return) : [away?locLabel(loc):(next?"":"in the flat"), next?"next "+fmt(next.pickup)+" · "+next.client:""].filter(Boolean).join(" · ");
+    const chip = away ? {home:"home",wash:"washing",alter:"altering",minerva:"Minerva"}[loc] : {late:"overdue",out:"out",booked:"booked",in:"in"}[st];
+    return '<button class="row" onclick="openDress(\''+d.id+'\')"><span class="swatch" style="background:'+esc(d.colour||"var(--line)")+'"></span><div class="main"><div class="t">'+esc(d.name)+'</div><div class="s">'+esc(sub)+'</div></div><div class="r"><span class="chip '+(away?"booked":st)+'">'+chip+'</span><div class="s">'+R(d.price)+'</div></div></button>';
   }).join("") : '<div class="empty">No dresses yet. <b>Tap Add.</b></div>';
 }
 
@@ -378,6 +383,7 @@ function openDress(id){
     F("d-name","Name (colour + label, e.g. Pink Peppermayo)","text",d.name)+
     '<div class="two">'+F("d-price","Rental price (R)","number",d.price,'inputmode="numeric"')+'<div class="field"><label for="d-colour">Colour</label><input id="d-colour" type="color" value="'+esc(d.colour||"#7A1F3D")+'" style="padding:4px;height:46px"></div></div>'+
     F("d-notes","Size / notes","text",d.notes||"")+
+    (id?'<div class="field"><label for="d-loc">Where is it now</label><select id="d-loc">'+LOCS.map(([k,l])=>'<option value="'+k+'" '+((d.location||"flat")===k?'selected':'')+'>'+l+'</option>').join("")+'</select></div>':'')+
     '<div class="actions"><button class="btn" onclick="saveDress(\''+(id||"")+'\')">Save</button>'+(id?'<button class="btn danger" onclick="retireDress(\''+id+'\')">Remove</button>':'')+'</div>'+
     (id?'<div class="hist"><h3>History · '+hist.length+' rental'+(hist.length!==1?'s':'')+' · '+R(hist.reduce((s,b)=>s+(+b.price||0),0))+'</h3>'+(hist.length?hist.map(b=>rowB(b)).join(""):'<div class="empty">Not rented yet.</div>')+'</div>':''));
 }
@@ -385,6 +391,7 @@ function saveDress(id){
   const name=V("d-name"); if(!name) return toast("Give the dress a name");
   const d = id ? dressOf(id) : {id:uid(),createdAt:today()};
   Object.assign(d,{name,price:+V("d-price")||0,colour:V("d-colour"),notes:V("d-notes")});
+  if(id) d.location=V("d-loc");
   put("dresses",d); closeSheet(); toast("Saved");
 }
 function retireDress(id){ if(!confirm("Remove this dress from the list? Its history is kept.")) return; const d=dressOf(id); d.retired=true; put("dresses",d); closeSheet(); }
@@ -424,14 +431,23 @@ function openBookingView(id){
     '<div class="kv"><span>Dress</span><div>'+esc(d.name||"—")+'</div><span>Event</span><div>'+fmtL(b.eventDate)+'</div>'+(b.fittingDate?'<span>Fitting</span><div>'+fmtL(b.fittingDate)+(b.fittingTime?' at '+b.fittingTime:'')+'</div>':'')+'<span>Pick up</span><div>'+fmtL(b.pickup)+(b.pickedUpAt?' ✓':'')+'</div><span>Return</span><div>'+fmtL(b.return)+(b.returnedAt?' ✓ '+fmt(b.returnedAt):'')+'</div><span>Price</span><div>'+R(b.price)+' · paid '+R(b.paid)+(owed(b)>0?' · <b style="color:var(--wine)">owes '+R(owed(b))+'</b>':'')+'</div>'+(b.phone?'<span>Phone</span><div><a href="tel:'+esc(b.phone)+'">'+esc(b.phone)+'</a></div>':'')+(b.notes?'<span>Notes</span><div>'+esc(b.notes)+'</div>':'')+'</div>'+
     '<div class="actions">'+
     (st==="booked"?'<button class="btn wine" onclick="mark(\''+id+'\',\'pickedUpAt\')">Picked up</button>':'')+
-    ((st==="out"||st==="late")?'<button class="btn wine" onclick="mark(\''+id+'\',\'returnedAt\')">Returned</button>':'')+
+    ((st==="out"||st==="late")?'<button class="btn wine" onclick="openReturn(\''+id+'\')">Returned</button>':'')+
     (owed(b)>0?'<button class="btn" onclick="markPaid(\''+id+'\')">Paid '+R(owed(b))+'</button>':'')+
     '<button class="btn ghost" onclick="openMessage(\''+id+'\')">Message</button>'+
     '<button class="btn ghost" onclick="openBooking(\''+id+'\')">Edit</button>'+
     (st!=="cancelled"&&st!=="done"?'<button class="btn danger" onclick="cancelBooking(\''+id+'\')">Cancel booking</button>':'')+
     '</div>');
 }
-function mark(id,k){ const b=S.bookings.find(x=>x.id===id); b[k]=today(); put("bookings",b); openBookingView(id); toast(k==="returnedAt"?"Back in the flat":"Out the door"); }
+function mark(id,k){ const b=S.bookings.find(x=>x.id===id); b[k]=today(); put("bookings",b); if(k==="pickedUpAt"){ const d=dressOf(b.dressId); if(d&&d.location&&d.location!=="flat"){ d.location="flat"; put("dresses",d);} } openBookingView(id); toast(k==="returnedAt"?"Back in the flat":"Out the door"); }
+function openReturn(id){
+  const b=S.bookings.find(x=>x.id===id);
+  openSheet('<h2>Back from '+esc(b.client)+'</h2><p class="note" style="color:var(--ink-2)">'+esc(dressName(b.dressId))+' — where is it now?</p><div class="actions" style="flex-direction:column">'+LOCS.map(([k,l])=>'<button class="btn '+(k==="flat"?'wine':'ghost')+'" style="flex:none" onclick="doReturn(\''+id+'\',\''+k+'\')">'+l+'</button>').join("")+'</div>');
+}
+function doReturn(id,loc){
+  const b=S.bookings.find(x=>x.id===id); b.returnedAt=today(); put("bookings",b);
+  const d=dressOf(b.dressId); if(d){ d.location=loc; put("dresses",d); }
+  closeSheet(); toast(loc==="flat"?"Back in the flat":locLabel(loc));
+}
 function markPaid(id){ const b=S.bookings.find(x=>x.id===id); b.paid=+b.price||0; put("bookings",b); openBookingView(id); toast("Paid in full"); }
 function cancelBooking(id){ if(!confirm("Cancel this booking?")) return; const b=S.bookings.find(x=>x.id===id); b.status="cancelled"; put("bookings",b); closeSheet(); }
 
