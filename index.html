@@ -225,7 +225,7 @@ async function loadAll(){
     const pending = new Set(queue.map(q=>q.row.id));
     for(const t of ["dresses","bookings","enquiries"]){
       const local = S[t].filter(x=>pending.has(x.id));
-      S[t] = (j[t]||[]).filter(x=>!pending.has(x.id)).concat(local);
+      S[t] = (j[t]||[]).filter(x=>!pending.has(x.id) && x.status!=="deleted").concat(local);
     }
     if(j.settings && j.settings.length && !pending.has("main")) S.settings = j.settings[0];
     syncState="ok"; save(); render();
@@ -255,7 +255,7 @@ async function flush(){
 }
 
 /* ---------- derived ---------- */
-const active = b => b.status!=="cancelled";
+const active = b => b.status!=="cancelled" && b.status!=="deleted";
 function bState(b){
   if(b.status==="cancelled") return "cancelled";
   if(b.returnedAt) return "done";
@@ -436,8 +436,10 @@ function openBookingView(id){
     '<button class="btn ghost" onclick="openMessage(\''+id+'\')">Message</button>'+
     '<button class="btn ghost" onclick="openBooking(\''+id+'\')">Edit</button>'+
     (st!=="cancelled"&&st!=="done"?'<button class="btn danger" onclick="cancelBooking(\''+id+'\')">Cancel booking</button>':'')+
+    '<button class="btn danger" onclick="deleteBooking(\''+id+'\')">Delete</button>'+
     '</div>');
 }
+function deleteBooking(id){ const b=S.bookings.find(x=>x.id===id); if(!b||!confirm("Delete this booking for good? It disappears from both phones and from the sheet.")) return; b.status="deleted"; put("bookings",b); S.bookings=S.bookings.filter(x=>x.id!==id); save(); closeSheet(); render(); toast("Deleted"); }
 function mark(id,k){ const b=S.bookings.find(x=>x.id===id); b[k]=today(); put("bookings",b); if(k==="pickedUpAt"){ const d=dressOf(b.dressId); if(d&&d.location&&d.location!=="flat"){ d.location="flat"; put("dresses",d);} } openBookingView(id); toast(k==="returnedAt"?"Back in the flat":"Out the door"); }
 function openReturn(id){
   const b=S.bookings.find(x=>x.id===id);
